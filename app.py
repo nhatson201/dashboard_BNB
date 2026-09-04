@@ -3,6 +3,11 @@ import requests
 
 app = Flask(__name__)
 
+# Headers giả lập trình duyệt để tránh bị Binance chặn IP khi chạy trên Cloud (Render, AWS, v.v.)
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -12,11 +17,11 @@ def get_order_book():
     try:
         # 1. Lấy dữ liệu Sổ lệnh (Order Book) từ Binance Futures XAUUSDT
         book_url = "https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=5"
-        book_res = requests.get(book_url, timeout=5).json()
+        book_res = requests.get(book_url, headers=HEADERS, timeout=5).json()
         
         # 2. Lấy dữ liệu Recent Trades từ Binance Futures
         trades_url = "https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50"
-        trades_res = requests.get(trades_url, timeout=5).json()
+        trades_res = requests.get(trades_url, headers=HEADERS, timeout=5).json()
         
         if 'asks' not in book_res or 'bids' not in book_res:
             return jsonify({'error': 'Không lấy được dữ liệu từ Binance'}), 500
@@ -26,7 +31,6 @@ def get_order_book():
         if isinstance(trades_res, list):
             for t in trades_res:
                 qty = float(t['qty'])
-                # Sửa lại thành 'isBuyerMaker' theo chuẩn phản hồi của Binance Futures API
                 if t.get('isBuyerMaker', False):
                     recent_delta -= qty
                 else:
