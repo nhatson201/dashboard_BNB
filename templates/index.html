@@ -144,7 +144,7 @@
         try {
             // Lấy limit=10 cho mỗi bên (tổng depth lấy 20 bản ghi để cắt ra 10 ask và 10 bid chuẩn xác)
             let [bookRes, tradesRes] = await Promise.all([
-                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=10'),
+                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=20'),
                 fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
             ]);
             
