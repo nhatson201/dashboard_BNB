@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Binance XAUUSDT Options Order Flow & Open Interest Depth</title>
+    <title>Binance Advanced Order Flow DoM - XAUUSDT</title>
     <style>
         :root {
             --bg-color: #0b0e11;
@@ -76,11 +76,11 @@
 <body>
 
 <div class="container">
-    <h2>🟡 Binance XAUUSDT Options Order Flow & Open Interest Depth</h2>
-    <div class="status" id="status">Đang quét mã Options từ Binance...</div>
+    <h2>🟡 Binance XAUUSDT Advanced Order Flow & Open Interest Depth</h2>
+    <div class="status" id="status">Đang kết nối trực tiếp tới Binance...</div>
 
     <div class="metrics-bar">
-        <div>Hợp đồng: <span id="symbol-name">Đang tải...</span></div>
+        <div>Cặp: <span>XAUUSDT Swap</span></div>
         <div>Net Tape Delta: <span id="net-delta">0.00</span></div>
         <div>Tần suất: <span>1.5s / lần</span></div>
     </div>
@@ -102,58 +102,27 @@
 </div>
 
 <script>
-    let cachedSymbol = null;
-
-    async function fetchOptionsData() {
+    async function fetchOrderBook() {
         try {
-            // Bước 1: Nếu chưa tìm thấy mã hợp đồng, gọi exchangeInfo để tìm mã XAU
-            if (!cachedSymbol) {
-                let infoRes = await fetch('https://eapi.binance.com/eapi/v1/exchangeInfo');
-                let infoData = await infoRes.json();
-                
-                if (infoData && infoData.optionSymbols) {
-                    for (let sym of infoData.optionSymbols) {
-                        let underlying = sym.underlying || '';
-                        let name = sym.symbol || '';
-                        if (underlying.includes('XAU') || name.includes('XAU')) {
-                            cachedSymbol = name;
-                            break;
-                        }
-                    }
-                    // Nếu vẫn không thấy, lấy tạm mã đầu tiên đang TRADING
-                    if (!cachedSymbol) {
-                        let active = infoData.optionSymbols.find(s => s.status === 'TRADING');
-                        if (active) cachedSymbol = active.symbol;
-                    }
-                }
-            }
-
-            if (!cachedSymbol) {
-                document.getElementById('status').innerText = "Không tìm thấy mã Option XAU trên Binance";
-                return;
-            }
-
-            document.getElementById('symbol-name').innerText = cachedSymbol;
-
-            // Bước 2: Gọi trực tiếp Depth và Trades từ trình duyệt
+            // Gọi trực tiếp API Binance từ trình duyệt (Bỏ qua hoàn toàn IP của Render)
             let [bookRes, tradesRes] = await Promise.all([
-                fetch(`https://eapi.binance.com/eapi/v1/depth?symbol=${cachedSymbol}&limit=5`),
-                fetch(`https://eapi.binance.com/eapi/v1/trades?symbol=${cachedSymbol}&limit=50`)
+                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=5'),
+                fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
             ]);
-
+            
             let data = await bookRes.json();
             let trades = await tradesRes.json();
-
+            
             if (!data.asks || !data.bids) {
-                document.getElementById('status').innerText = "Lỗi phản hồi dữ liệu từ Binance Options";
+                document.getElementById('status').innerText = "Lỗi phản hồi từ Binance";
                 return;
             }
 
             let recent_delta = 0;
             if (Array.isArray(trades)) {
                 trades.forEach(t => {
-                    let qty = parseFloat(t.qty || 0);
-                    if (t.side === 'SELL') {
+                    let qty = parseFloat(t.qty);
+                    if (t.isBuyerMaker) {
                         recent_delta -= qty;
                     } else {
                         recent_delta += qty;
@@ -198,9 +167,9 @@
 
             let best_ask = asks_raw.length > 0 ? asks_raw[asks_raw.length - 1][0] : 0;
             let best_bid = bids_raw.length > 0 ? bids_raw[0][0] : 0;
-            let spread = Number((best_ask - best_bid).toFixed(4));
+            let spread = Number((best_ask - best_bid).toFixed(2));
 
-            document.getElementById('status').innerText = `Live Options Real-time | Spread: ${spread}`;
+            document.getElementById('status').innerText = `Live Real-time | Spread: ${spread} USDT`;
             let netDeltaEl = document.getElementById('net-delta');
             netDeltaEl.innerText = (recent_delta >= 0 ? "+" : "") + recent_delta.toFixed(2) + " HĐ";
             netDeltaEl.className = recent_delta >= 0 ? "positive" : "negative";
@@ -214,8 +183,8 @@
                     <tr class="ask-row">
                         <td>ASK</td>
                         <td class="price-ask">${item.price.toLocaleString()}</td>
-                        <td>${item.size.toFixed(4)}</td>
-                        <td class="bar-cell" style="--pct: ${pct}">${item.cumulative.toFixed(4)}</td>
+                        <td>${item.size.toFixed(2)}</td>
+                        <td class="bar-cell" style="--pct: ${pct}">${item.cumulative.toFixed(2)}</td>
                         <td class="${deltaClass}">${item.tape_delta >= 0 ? "+" : ""}${item.tape_delta}</td>
                         <td class="${oiClass}">$${item.oi_change_usd.toLocaleString()}</td>
                         <td>${item.oi_weighted.toLocaleString()}</td>
@@ -235,8 +204,8 @@
                     <tr class="bid-row">
                         <td>BID</td>
                         <td class="price-bid">${item.price.toLocaleString()}</td>
-                        <td>${item.size.toFixed(4)}</td>
-                        <td class="bar-cell" style="--pct: ${pct}">${item.cumulative.toFixed(4)}</td>
+                        <td>${item.size.toFixed(2)}</td>
+                        <td class="bar-cell" style="--pct: ${pct}">${item.cumulative.toFixed(2)}</td>
                         <td class="${deltaClass}">${item.tape_delta >= 0 ? "+" : ""}${item.tape_delta}</td>
                         <td class="${oiClass}">$${item.oi_change_usd.toLocaleString()}</td>
                         <td>${item.oi_weighted.toLocaleString()}</td>
@@ -247,7 +216,7 @@
             document.getElementById('dom-body').innerHTML = html;
         } catch (err) {
             console.error("Lỗi:", err);
-            document.getElementById('status').innerText = "Đang kết nối lại với Binance Options...";
+            document.getElementById('status').innerText = "Đang kết nối lại với Binance...";
         }
     }
 
@@ -258,8 +227,8 @@
         return arr.map(p => [parseFloat(p[0]), parseFloat(p[1])]).sort((a, b) => b[0] - a[0]);
     }
 
-    setInterval(fetchOptionsData, 1500);
-    fetchOptionsData();
+    setInterval(fetchOrderBook, 1500);
+    fetchOrderBook();
 </script>
 
 </body>
