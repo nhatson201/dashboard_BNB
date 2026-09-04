@@ -44,11 +44,37 @@
             background: #14171a;
             padding: 10px;
             border-radius: 6px;
-            margin-bottom: 15px;
+            margin-bottom: 10px;
             font-size: 0.85rem;
             border: 1px solid var(--border-color);
         }
         .metric-item span { font-weight: bold; color: var(--accent); }
+        
+        /* Liquidation Heatmap Gauge Style */
+        .liq-gauge-container {
+            background: #14171a;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 0.8rem;
+        }
+        .liq-gauge-title {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+        }
+        .liq-track {
+            display: flex;
+            height: 10px;
+            background: #2b313a;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .liq-ask-side { background-color: var(--ask-color); height: 100%; transition: width 0.3s ease; }
+        .liq-bid-side { background-color: var(--bid-color); height: 100%; transition: width 0.3s ease; }
+
         table { width: 100%; border-collapse: collapse; text-align: right; font-size: 0.82rem; }
         th, td { padding: 8px 8px; border-bottom: 1px solid var(--border-color); }
         th { background: #14171a; color: var(--text-secondary); text-transform: uppercase; font-size: 0.72rem; }
@@ -76,13 +102,25 @@
 <body>
 
 <div class="container">
-    <h2>🟡 Binance XAUUSDT Advanced Order Flow & Open Interest Depth</h2>
+    <h2>🟡 Binance XAUUSDT Advanced Order Flow & Open Interest Depth (10 Rows)</h2>
     <div class="status" id="status">Đang kết nối trực tiếp tới Binance...</div>
 
     <div class="metrics-bar">
         <div>Cặp: <span>XAUUSDT Swap</span></div>
         <div>Net Tape Delta: <span id="net-delta">0.00</span></div>
         <div>Tần suất: <span>1.5s / lần</span></div>
+    </div>
+
+    <!-- Thanh ước lượng vùng áp lực / thanh lý (Liquidation Pressure Gauge) -->
+    <div class="liq-gauge-container">
+        <div class="liq-gauge-title">
+            <span>🔥 Ước lượng Vùng Áp Lực Thanh Lý (Ask vs Bid Depth)</span>
+            <span id="liq-ratio-text">Đang tính toán...</span>
+        </div>
+        <div class="liq-track">
+            <div id="liq-bar-ask" class="liq-ask-side" style="width: 50%;"></div>
+            <div id="liq-bar-bid" class="liq-bid-side" style="width: 50%;"></div>
+        </div>
     </div>
 
     <table>
@@ -104,9 +142,9 @@
 <script>
     async function fetchOrderBook() {
         try {
-            // Gọi trực tiếp API Binance từ trình duyệt (Bỏ qua hoàn toàn IP của Render)
+            // Lấy limit=10 cho mỗi bên (tổng depth lấy 20 bản ghi để cắt ra 10 ask và 10 bid chuẩn xác)
             let [bookRes, tradesRes] = await Promise.all([
-                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=20'),
+                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=10'),
                 fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
             ]);
             
@@ -133,8 +171,20 @@
             let asks_raw = sortedAsks(data.asks);
             let bids_raw = sortedBids(data.bids);
 
+            // Cắt đúng 10 hàng cho mỗi bên
+            asks_raw = asks_raw.slice(-10);
+            bids_raw = bids_raw.slice(0, 10);
+
             let total_ask_size = asks_raw.reduce((sum, item) => sum + item[1], 0) || 1;
             let total_bid_size = bids_raw.reduce((sum, item) => sum + item[1], 0) || 1;
+
+            // Cập nhật thanh Liquidation Gauge
+            let totalDepth = total_ask_size + total_bid_size;
+            let askPct = (total_ask_size / totalDepth) * 100;
+            let bidPct = (total_bid_size / totalDepth) * 100;
+            document.getElementById('liq-bar-ask').style.width = askPct.toFixed(1) + '%';
+            document.getElementById('liq-bar-bid').style.width = bidPct.toFixed(1) + '%';
+            document.getElementById('liq-ratio-text').innerText = `Áp lực Bán (Ask): ${askPct.toFixed(1)}% | Áp lực Mua (Bid): ${bidPct.toFixed(1)}%`;
 
             let html = '';
             let cum_ask = 0;
@@ -169,12 +219,12 @@
             let best_bid = bids_raw.length > 0 ? bids_raw[0][0] : 0;
             let spread = Number((best_ask - best_bid).toFixed(2));
 
-            document.getElementById('status').innerText = `Live Real-time | Spread: ${spread} USDT`;
+            document.getElementById('status').innerText = `Live Real-time (10 Rows) | Spread: ${spread} USDT`;
             let netDeltaEl = document.getElementById('net-delta');
             netDeltaEl.innerText = (recent_delta >= 0 ? "+" : "") + recent_delta.toFixed(2) + " HĐ";
             netDeltaEl.className = recent_delta >= 0 ? "positive" : "negative";
 
-            // Render Asks
+            // Render Asks (10 hàng)
             asks.forEach(item => {
                 let pct = (item.cumulative / max_cum_ask).toFixed(2);
                 let deltaClass = item.tape_delta >= 0 ? "positive" : "negative";
@@ -195,7 +245,7 @@
             // Render Spread Bar
             html += `<tr><td colspan="7" class="spread-bar">SPREAD: ${spread} (Best Ask: ${best_ask} | Best Bid: ${best_bid})</td></tr>`;
 
-            // Render Bids
+            // Render Bids (10 hàng)
             bids.forEach(item => {
                 let pct = (item.cumulative / max_cum_bid).toFixed(2);
                 let deltaClass = item.tape_delta >= 0 ? "positive" : "negative";
@@ -221,7 +271,7 @@
     }
 
     function sortedAsks(arr) {
-        return arr.map(p => [parseFloat(p[0]), parseFloat(p[1])]).sort((a, b) => b[0] - a[0]);
+        return arr.map(p => [parseFloat(p[0]), parseFloat(p[1])]).sort((a, b) => a[0] - b[0]);
     }
     function sortedBids(arr) {
         return arr.map(p => [parseFloat(p[0]), parseFloat(p[1])]).sort((a, b) => b[0] - a[0]);
