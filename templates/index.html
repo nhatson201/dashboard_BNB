@@ -1,160 +1,12 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <title>XAUUSDT Order Book & Market Status</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: #e0e0e0;
-            margin: 0;
-            padding: 20px;
-        }
-        h2 { text-align: center; color: #ffffff; }
-        
-        /* Khung Cảnh Báo Trạng Thái & Đáo Hạn */
-        .alert-dashboard {
-            display: flex;
-            justify-content: space-between;
-            background: #1e1e1e;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        .alert-card {
-            flex: 1;
-            text-align: center;
-            padding: 0 10px;
-            border-right: 1px solid #333;
-        }
-        .alert-card:last-child { border-right: none; }
-        .alert-title { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 5px; }
-        .alert-value { font-size: 16px; font-weight: bold; }
-        .status-buy { color: #00c853; }
-        .status-sell { color: #ff5252; }
-        .status-neutral { color: #ffab40; }
-
-        /* Khung Liquidation & Status chung */
-        .top-panel {
-            background: #1e1e1e;
-            padding: 10px 15px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .liq-bar-container {
-            width: 300px;
-            background: #ff5252;
-            height: 14px;
-            border-radius: 3px;
-            overflow: hidden;
-            display: flex;
-        }
-        .liq-bar-ask { background: #ff5252; height: 100%; transition: width 0.3s; }
-        .liq-bar-bid { background: #00c853; height: 100%; transition: width 0.3s; }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background-color: #181818;
-            font-size: 13px;
-        }
-        th, td {
-            padding: 8px 10px;
-            text-align: center;
-            border-bottom: 1px solid #2a2a2a;
-        }
-        th { background-color: #222; color: #bbb; }
-        
-        .ask-row { background-color: rgba(255, 82, 82, 0.08); }
-        .bid-row { background-color: rgba(0, 200, 83, 0.08); }
-        .price-ask { color: #ff5252; font-weight: bold; }
-        .price-bid { color: #00c853; font-weight: bold; }
-        
-        .positive { color: #00c853; }
-        .negative { color: #ff5252; }
-        
-        .spread-bar {
-            background-color: #252525;
-            font-weight: bold;
-            color: #ffd700;
-            letter-spacing: 1px;
-        }
-        
-        .bar-cell {
-            position: relative;
-        }
-        .bar-cell::before {
-            content: "";
-            position: absolute;
-            top: 0; left: 0; bottom: 0;
-            width: calc(var(--pct) * 100%);
-            background: rgba(255, 255, 255, 0.05);
-            z-index: 1;
-        }
-    </style>
-</head>
-<body>
-
-    <h2>XAUUSDT Order Book & Real-Time Analytics</h2>
-
-    <!-- BẢNG CẢNH BÁO TRẠNG THÁI & ĐÁO HẠN -->
-    <div class="alert-dashboard">
-        <div class="alert-card">
-            <div class="alert-title">Trạng thái 5 phút qua</div>
-            <div id="status-5m" class="alert-value status-neutral">Đang phân tích...</div>
-        </div>
-        <div class="alert-card">
-            <div class="alert-title">Số lệnh chờ đáo hạn (Buy / Sell)</div>
-            <div id="expiry-orders-count" class="alert-value">-- / --</div>
-        </div>
-        <div class="alert-card">
-            <div class="alert-title">Ngày giờ đáo hạn HĐ</div>
-            <div id="expiry-date-text" class="alert-value" style="color: #40c4ff;">--</div>
-        </div>
-    </div>
-
-    <div class="top-panel">
-        <div id="status">Đang kết nối dữ liệu...</div>
-        <div>Net Delta: <span id="net-delta">0.00</span></div>
-        <div>
-            <span id="liq-ratio-text" style="font-size: 12px; margin-right: 10px;">Áp lực: --</span>
-            <div class="liq-bar-container">
-                <div id="liq-bar-ask" class="liq-bar-ask" style="width: 50%;"></div>
-                <div id="liq-bar-bid" class="liq-bar-bid" style="width: 50%;"></div>
-            </div>
-        </div>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Type</th>
-                <th>Price (Tick: 0.1)</th>
-                <th>Size</th>
-                <th>Cumulative</th>
-                <th>Tape Delta</th>
-                <th>OI Change ($)</th>
-                <th>OI Weighted</th>
-            </tr>
-        </thead>
-        <tbody id="dom-body">
-            <!-- Dữ liệu render trực tiếp bằng JS -->
-        </tbody>
-    </table>
-
 <script>
+    // Định nghĩa bước giá (Tick Size / Spread mong muốn)
     const TICK_SIZE = 0.1;
 
     function roundToTick(price) {
         return Number((Math.round(price / TICK_SIZE) * TICK_SIZE).toFixed(2));
     }
 
+    // Hàm nhóm các lệnh theo Tick Size mới
     function aggregateOrders(rawArr, isAsk) {
         let map = {};
         rawArr.forEach(([price, size]) => {
@@ -166,6 +18,7 @@
         });
 
         let entries = Object.keys(map).map(p => [parseFloat(p), map[p]]);
+        // Sắp xếp: Ask tăng dần, Bid giảm dần
         if (isAsk) {
             entries.sort((a, b) => a[0] - b[0]);
         } else {
@@ -174,28 +27,18 @@
         return entries;
     }
 
-    function getNextContractExpiry() {
-        let now = new Date();
-        let expiry = new Date(now.getFullYear(), now.getMonth() + 1, 0); 
-        expiry.setUTCHours(15, 0, 0, 0);
-        return expiry.toLocaleString('vi-VN', { timeZone: 'UTC' }) + " UTC";
-    }
-
     async function fetchOrderBook() {
         try {
-            let response = await fetch('/api/data');
-            let resData = await response.json();
+            let [bookRes, tradesRes] = await Promise.all([
+                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=50'),
+                fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
+            ]);
             
-            if (resData.error) {
-                document.getElementById('status').innerText = "Lỗi kết nối từ Server tới Binance";
-                return;
-            }
-
-            let data = resData.depth;
-            let trades = resData.trades;
+            let data = await bookRes.json();
+            let trades = await tradesRes.json();
             
             if (!data.asks || !data.bids) {
-                document.getElementById('status').innerText = "Dữ liệu sổ lệnh trống";
+                document.getElementById('status').innerText = "Lỗi phản hồi từ Binance";
                 return;
             }
 
@@ -211,37 +54,20 @@
                 });
             }
 
-            // Cập nhật cảnh báo trạng thái 5 phút qua
-            let status5mEl = document.getElementById('status-5m');
-            if (recent_delta > 1.5) {
-                status5mEl.innerText = "BUY (Tích cực mua)";
-                status5mEl.className = "alert-value status-buy";
-            } else if (recent_delta < -1.5) {
-                status5mEl.innerText = "SELL (Áp lực bán)";
-                status5mEl.className = "alert-value status-sell";
-            } else {
-                status5mEl.innerText = "TRUNG LẬP (Sideway)";
-                status5mEl.className = "alert-value status-neutral";
-            }
-
-            let totalBuyExpiryOrders = data.bids.length * 12;
-            let totalSellExpiryOrders = data.asks.length * 12;
-            document.getElementById('expiry-orders-count').innerHTML = 
-                `<span class="status-buy">${totalBuyExpiryOrders} Buy</span> / <span class="status-sell">${totalSellExpiryOrders} Sell</span>`;
-            document.getElementById('expiry-date-text').innerText = getNextContractExpiry();
-
+            // Gom nhóm theo bước giá 0.1 và lấy đúng 10 hàng
             let asks_raw = aggregateOrders(data.asks, true).slice(-10);
             let bids_raw = aggregateOrders(data.bids, false).slice(0, 10);
 
             let total_ask_size = asks_raw.reduce((sum, item) => sum + item[1], 0) || 1;
             let total_bid_size = bids_raw.reduce((sum, item) => sum + item[1], 0) || 1;
 
+            // Cập nhật thanh Liquidation Gauge
             let totalDepth = total_ask_size + total_bid_size;
             let askPct = (total_ask_size / totalDepth) * 100;
             let bidPct = (total_bid_size / totalDepth) * 100;
             document.getElementById('liq-bar-ask').style.width = askPct.toFixed(1) + '%';
             document.getElementById('liq-bar-bid').style.width = bidPct.toFixed(1) + '%';
-            document.getElementById('liq-ratio-text').innerText = `Ask: ${askPct.toFixed(1)}% | Bid: ${bidPct.toFixed(1)}%`;
+            document.getElementById('liq-ratio-text').innerText = `Áp lực Bán (Ask): ${askPct.toFixed(1)}% | Áp lực Mua (Bid): ${bidPct.toFixed(1)}%`;
 
             let html = '';
             let cum_ask = 0;
@@ -276,11 +102,12 @@
             let best_bid = bids_raw.length > 0 ? bids_raw[0][0] : 0;
             let spread = Number((best_ask - best_bid).toFixed(2));
 
-            document.getElementById('status').innerText = `Live (Tick: ${TICK_SIZE}) | Spread: ${spread} USDT`;
+            document.getElementById('status').innerText = `Live Real-time (Tick: ${TICK_SIZE}) | Spread: ${spread} USDT`;
             let netDeltaEl = document.getElementById('net-delta');
             netDeltaEl.innerText = (recent_delta >= 0 ? "+" : "") + recent_delta.toFixed(2) + " HĐ";
             netDeltaEl.className = recent_delta >= 0 ? "positive" : "negative";
 
+            // Render Asks (10 hàng)
             asks.forEach(item => {
                 let pct = (item.cumulative / max_cum_ask).toFixed(2);
                 let deltaClass = item.tape_delta >= 0 ? "positive" : "negative";
@@ -298,8 +125,10 @@
                 `;
             });
 
+            // Render Spread Bar
             html += `<tr><td colspan="7" class="spread-bar">SPREAD: ${spread} (Best Ask: ${best_ask.toFixed(1)} | Best Bid: ${best_bid.toFixed(1)})</td></tr>`;
 
+            // Render Bids (10 hàng)
             bids.forEach(item => {
                 let pct = (item.cumulative / max_cum_bid).toFixed(2);
                 let deltaClass = item.tape_delta >= 0 ? "positive" : "negative";
@@ -320,12 +149,10 @@
             document.getElementById('dom-body').innerHTML = html;
         } catch (err) {
             console.error("Lỗi:", err);
-            document.getElementById('status').innerText = "Đang kết nối lại với Server...";
+            document.getElementById('status').innerText = "Đang kết nối lại với Binance...";
         }
     }
 
     setInterval(fetchOrderBook, 1500);
     fetchOrderBook();
 </script>
-</body>
-</html>
