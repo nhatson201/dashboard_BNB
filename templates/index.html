@@ -106,7 +106,7 @@
         try {
             // Gọi trực tiếp API Binance từ trình duyệt (Bỏ qua hoàn toàn IP của Render)
             let [bookRes, tradesRes] = await Promise.all([
-                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=5'),
+                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=20'),
                 fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
             ]);
             
