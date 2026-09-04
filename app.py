@@ -3,7 +3,6 @@ import requests
 
 app = Flask(__name__)
 
-# Headers giả lập trình duyệt để tránh bị Binance chặn IP khi chạy trên Cloud (Render, AWS, v.v.)
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
@@ -13,30 +12,50 @@ def index():
     return render_template('index.html')
 
 @app.route('/api/orderbook')
-def get_order_book():
+def get_option_order_book():
     try:
-        # 1. Lấy dữ liệu Sổ lệnh (Order Book) từ Binance Futures XAUUSDT
-        book_url = "https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=5"
+        # 1. Lấy thông tin các mã Options từ Binance Options API
+        info_url = "https://eapi.binance.com/eapi/v1/exchangeInfo"
+        info_res = requests.get(info_url, headers=HEADERS, timeout=5).json()
+        
+        # Lọc ra các mã option thuộc tài sản XAUUSDT (ví dụ: XAU-...)
+        target_symbol = None
+        if 'optionSymbols' in info_res:
+            for sym in info_res['optionSymbols']:
+                if sym.get('underlying') == 'XAUUSDT' or 'XAU' in sym.get('symbol', ''):
+                    target_symbol = sym['symbol']
+                    break
+        
+        # Nếu không tìm thấy, mặc định lấy một mã XAU phổ biến hoặc mã đầu tiên tìm được
+        if not target_symbol and 'optionSymbols' in info_res and len(info_res['optionSymbols']) > 0:
+            target_symbol = info_res['optionSymbols'][0]['symbol']
+        
+        if not target_symbol:
+            target_symbol = "XAUUSDT" # Fallback
+
+        # 2. Lấy Order Book (Depth) của mã Option cụ thể đó
+        book_url = f"https://eapi.binance.com/eapi/v1/depth?symbol={target_symbol}&limit=5"
         book_res = requests.get(book_url, headers=HEADERS, timeout=5).json()
         
-        # 2. Lấy dữ liệu Recent Trades từ Binance Futures
-        trades_url = "https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50"
+        # 3. Lấy Recent Trades của Option
+        trades_url = f"https://eapi.binance.com/eapi/v1/trades?symbol={target_symbol}&limit=50"
         trades_res = requests.get(trades_url, headers=HEADERS, timeout=5).json()
         
         if 'asks' not in book_res or 'bids' not in book_res:
-            return jsonify({'error': 'Không lấy được dữ liệu từ Binance'}), 500
+            return jsonify({'error': f'Không lấy được dữ liệu Options cho mã {target_symbol}'}), 500
 
-        # Tính tổng Tape Delta thô từ các giao dịch gần đây
+        # Tính Tape Delta từ trades của Options
         recent_delta = 0
         if isinstance(trades_res, list):
             for t in trades_res:
-                qty = float(t['qty'])
-                if t.get('isBuyerMaker', False):
+                qty = float(t.get('qty', 0))
+                # Side: BUY hoặc SELL trong options trades
+                if t.get('side') == 'SELL':
                     recent_delta -= qty
                 else:
                     recent_delta += qty
 
-        # Xử lý phía ASKS (Bên bán) - Sắp xếp giá giảm dần lên trên
+        # Xử lý ASKS
         asks_raw = sorted([[float(p), float(s)] for p, s in book_res['asks']], key=lambda x: x[0], reverse=True)
         asks = []
         cum_ask = 0
@@ -60,7 +79,7 @@ def get_order_book():
             })
         max_cum_ask = cum_ask if cum_ask > 0 else 1
             
-        # Xử lý phía BIDS (Bên mua) - Sắp xếp giá giảm dần
+        # Xử lý BIDS
         bids_raw = sorted([[float(p), float(s)] for p, s in book_res['bids']], key=lambda x: x[0], reverse=True)
         bids = []
         cum_bid = 0
@@ -86,11 +105,11 @@ def get_order_book():
             
         best_ask = asks_raw[-1][0] if asks_raw else 0
         best_bid = bids_raw[0][0] if bids_raw else 0
-        spread = round(best_ask - best_bid, 2)
+        spread = round(best_ask - best_bid, 4)
 
         return jsonify({
-            'symbol': 'XAUUSDT',
-            'timestamp': 'Live Real-time',
+            'symbol': target_symbol,
+            'timestamp': 'Live Options Real-time',
             'asks': asks,
             'bids': bids,
             'max_cum_ask': max_cum_ask,
@@ -104,5 +123,4 @@ def get_order_book():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("Khởi động Local Server tại: http://127.0.0.1:5000")
     app.run(debug=True, port=5000)
