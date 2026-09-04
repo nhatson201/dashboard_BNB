@@ -1,36 +1,150 @@
-<script>
-    // Định nghĩa bước giá (Tick Size / Spread mong muốn)
-    const TICK_SIZE = 0.1;
-
-    function roundToTick(price) {
-        return Number((Math.round(price / TICK_SIZE) * TICK_SIZE).toFixed(2));
-    }
-
-    // Hàm nhóm các lệnh theo Tick Size mới
-    function aggregateOrders(rawArr, isAsk) {
-        let map = {};
-        rawArr.forEach(([price, size]) => {
-            let roundedPrice = roundToTick(price);
-            if (!map[roundedPrice]) {
-                map[roundedPrice] = 0;
-            }
-            map[roundedPrice] += size;
-        });
-
-        let entries = Object.keys(map).map(p => [parseFloat(p), map[p]]);
-        // Sắp xếp: Ask tăng dần, Bid giảm dần
-        if (isAsk) {
-            entries.sort((a, b) => a[0] - b[0]);
-        } else {
-            entries.sort((a, b) => b[0] - a[0]);
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Binance Advanced Order Flow DoM - XAUUSDT</title>
+    <style>
+        :root {
+            --bg-color: #0b0e11;
+            --panel-bg: #1e2329;
+            --text-primary: #eaecef;
+            --text-secondary: #848e9c;
+            --ask-color: #f6465d;
+            --ask-bg: rgba(246, 70, 93, 0.12);
+            --ask-bar: rgba(246, 70, 93, 0.28);
+            --bid-color: #0ecb81;
+            --bid-bg: rgba(14, 203, 129, 0.12);
+            --bid-bar: rgba(14, 203, 129, 0.28);
+            --accent: #f0b90b;
+            --border-color: #2b313a;
         }
-        return entries;
-    }
+        body {
+            font-family: monospace;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 1250px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        }
+        h2 { color: var(--accent); margin-top: 0; text-align: center; font-size: 1.2rem; }
+        .status { text-align: center; color: var(--text-secondary); margin-bottom: 12px; font-size: 0.8rem; }
+        .metrics-bar {
+            display: flex;
+            justify-content: space-around;
+            background: #14171a;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+        }
+        .metric-item span { font-weight: bold; color: var(--accent); }
+        
+        /* Liquidation Heatmap Gauge Style */
+        .liq-gauge-container {
+            background: #14171a;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 0.8rem;
+        }
+        .liq-gauge-title {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+        }
+        .liq-track {
+            display: flex;
+            height: 10px;
+            background: #2b313a;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .liq-ask-side { background-color: var(--ask-color); height: 100%; transition: width 0.3s ease; }
+        .liq-bid-side { background-color: var(--bid-color); height: 100%; transition: width 0.3s ease; }
 
+        table { width: 100%; border-collapse: collapse; text-align: right; font-size: 0.82rem; }
+        th, td { padding: 8px 8px; border-bottom: 1px solid var(--border-color); }
+        th { background: #14171a; color: var(--text-secondary); text-transform: uppercase; font-size: 0.72rem; }
+        th:first-child, td:first-child { text-align: left; }
+        .ask-row { background-color: var(--ask-bg); }
+        .bid-row { background-color: var(--bid-bg); }
+        .price-ask { color: var(--ask-color); font-weight: bold; }
+        .price-bid { color: var(--bid-color); font-weight: bold; }
+        .spread-bar { background-color: #14171a; text-align: center; color: var(--accent); font-weight: bold; padding: 8px; }
+        .positive { color: var(--bid-color); }
+        .negative { color: var(--ask-color); }
+        .bar-cell { position: relative; z-index: 1; }
+        .ask-row .bar-cell::before {
+            content: ''; position: absolute; right: 0; top: 0; bottom: 0;
+            background-color: var(--ask-bar); z-index: -1;
+            width: calc(var(--pct) * 100%);
+        }
+        .bid-row .bar-cell::before {
+            content: ''; position: absolute; right: 0; top: 0; bottom: 0;
+            background-color: var(--bid-bar); z-index: -1;
+            width: calc(var(--pct) * 100%);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🟡 Binance XAUUSDT Advanced Order Flow & Open Interest Depth (10 Rows)</h2>
+    <div class="status" id="status">Đang kết nối trực tiếp tới Binance...</div>
+
+    <div class="metrics-bar">
+        <div>Cặp: <span>XAUUSDT Swap</span></div>
+        <div>Net Tape Delta: <span id="net-delta">0.00</span></div>
+        <div>Tần suất: <span>1.5s / lần</span></div>
+    </div>
+
+    <!-- Thanh ước lượng vùng áp lực / thanh lý (Liquidation Pressure Gauge) -->
+    <div class="liq-gauge-container">
+        <div class="liq-gauge-title">
+            <span>🔥 Ước lượng Vùng Áp Lực Thanh Lý (Ask vs Bid Depth)</span>
+            <span id="liq-ratio-text">Đang tính toán...</span>
+        </div>
+        <div class="liq-track">
+            <div id="liq-bar-ask" class="liq-ask-side" style="width: 50%;"></div>
+            <div id="liq-bar-bid" class="liq-bid-side" style="width: 50%;"></div>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Loại</th>
+                <th>Mức Giá</th>
+                <th>Size</th>
+                <th>Cumulative Vol</th>
+                <th>Tape Delta</th>
+                <th>OI Change ($)</th>
+                <th>OI-Weighted</th>
+            </tr>
+        </thead>
+        <tbody id="dom-body"></tbody>
+    </table>
+</div>
+
+<script>
     async function fetchOrderBook() {
         try {
+            // Lấy limit=10 cho mỗi bên (tổng depth lấy 20 bản ghi để cắt ra 10 ask và 10 bid chuẩn xác)
             let [bookRes, tradesRes] = await Promise.all([
-                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=50'),
+                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=10'),
                 fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
             ]);
             
@@ -54,9 +168,12 @@
                 });
             }
 
-            // Gom nhóm theo bước giá 0.1 và lấy đúng 10 hàng
-            let asks_raw = aggregateOrders(data.asks, true).slice(-10);
-            let bids_raw = aggregateOrders(data.bids, false).slice(0, 10);
+            let asks_raw = sortedAsks(data.asks);
+            let bids_raw = sortedBids(data.bids);
+
+            // Cắt đúng 10 hàng cho mỗi bên
+            asks_raw = asks_raw.slice(-10);
+            bids_raw = bids_raw.slice(0, 10);
 
             let total_ask_size = asks_raw.reduce((sum, item) => sum + item[1], 0) || 1;
             let total_bid_size = bids_raw.reduce((sum, item) => sum + item[1], 0) || 1;
@@ -102,7 +219,7 @@
             let best_bid = bids_raw.length > 0 ? bids_raw[0][0] : 0;
             let spread = Number((best_ask - best_bid).toFixed(2));
 
-            document.getElementById('status').innerText = `Live Real-time (Tick: ${TICK_SIZE}) | Spread: ${spread} USDT`;
+            document.getElementById('status').innerText = `Live Real-time (10 Rows) | Spread: ${spread} USDT`;
             let netDeltaEl = document.getElementById('net-delta');
             netDeltaEl.innerText = (recent_delta >= 0 ? "+" : "") + recent_delta.toFixed(2) + " HĐ";
             netDeltaEl.className = recent_delta >= 0 ? "positive" : "negative";
@@ -115,18 +232,18 @@
                 html += `
                     <tr class="ask-row">
                         <td>ASK</td>
-                        <td class="price-ask">${item.price.toFixed(1)}</td>
+                        <td class="price-ask">${item.price.toLocaleString()}</td>
                         <td>${item.size.toFixed(2)}</td>
                         <td class="bar-cell" style="--pct: ${pct}">${item.cumulative.toFixed(2)}</td>
                         <td class="${deltaClass}">${item.tape_delta >= 0 ? "+" : ""}${item.tape_delta}</td>
                         <td class="${oiClass}">$${item.oi_change_usd.toLocaleString()}</td>
-                        <td>${item.oi_weighted.toFixed(1)}</td>
+                        <td>${item.oi_weighted.toLocaleString()}</td>
                     </tr>
                 `;
             });
 
             // Render Spread Bar
-            html += `<tr><td colspan="7" class="spread-bar">SPREAD: ${spread} (Best Ask: ${best_ask.toFixed(1)} | Best Bid: ${best_bid.toFixed(1)})</td></tr>`;
+            html += `<tr><td colspan="7" class="spread-bar">SPREAD: ${spread} (Best Ask: ${best_ask} | Best Bid: ${best_bid})</td></tr>`;
 
             // Render Bids (10 hàng)
             bids.forEach(item => {
@@ -136,12 +253,12 @@
                 html += `
                     <tr class="bid-row">
                         <td>BID</td>
-                        <td class="price-bid">${item.price.toFixed(1)}</td>
+                        <td class="price-bid">${item.price.toLocaleString()}</td>
                         <td>${item.size.toFixed(2)}</td>
                         <td class="bar-cell" style="--pct: ${pct}">${item.cumulative.toFixed(2)}</td>
                         <td class="${deltaClass}">${item.tape_delta >= 0 ? "+" : ""}${item.tape_delta}</td>
                         <td class="${oiClass}">$${item.oi_change_usd.toLocaleString()}</td>
-                        <td>${item.oi_weighted.toFixed(1)}</td>
+                        <td>${item.oi_weighted.toLocaleString()}</td>
                     </tr>
                 `;
             });
@@ -153,6 +270,16 @@
         }
     }
 
+    function sortedAsks(arr) {
+        return arr.map(p => [parseFloat(p[0]), parseFloat(p[1])]).sort((a, b) => a[0] - b[0]);
+    }
+    function sortedBids(arr) {
+        return arr.map(p => [parseFloat(p[0]), parseFloat(p[1])]).sort((a, b) => b[0] - a[0]);
+    }
+
     setInterval(fetchOrderBook, 1500);
     fetchOrderBook();
 </script>
+
+</body>
+</html>
