@@ -18,20 +18,26 @@ def get_option_order_book():
         info_url = "https://eapi.binance.com/eapi/v1/exchangeInfo"
         info_res = requests.get(info_url, headers=HEADERS, timeout=5).json()
         
-        # Lọc ra các mã option thuộc tài sản XAUUSDT (ví dụ: XAU-...)
         target_symbol = None
-        if 'optionSymbols' in info_res:
-            for sym in info_res['optionSymbols']:
-                if sym.get('underlying') == 'XAUUSDT' or 'XAU' in sym.get('symbol', ''):
-                    target_symbol = sym['symbol']
+        option_symbols = info_res.get('optionSymbols', [])
+        
+        # Tìm kiếm hợp đồng thuộc tài sản XAU hoặc XAUUSDT
+        for sym in option_symbols:
+            underlying = sym.get('underlying', '')
+            symbol_name = sym.get('symbol', '')
+            if 'XAU' in underlying or 'XAU' in symbol_name:
+                target_symbol = symbol_name
+                break
+        
+        # Nếu vẫn không tìm thấy, lấy bất kỳ mã option đầu tiên có trong danh sách giao dịch
+        if not target_symbol and len(option_symbols) > 0:
+            for sym in option_symbols:
+                if sym.get('status') == 'TRADING':
+                    target_symbol = sym.get('symbol')
                     break
         
-        # Nếu không tìm thấy, mặc định lấy một mã XAU phổ biến hoặc mã đầu tiên tìm được
-        if not target_symbol and 'optionSymbols' in info_res and len(info_res['optionSymbols']) > 0:
-            target_symbol = info_res['optionSymbols'][0]['symbol']
-        
         if not target_symbol:
-            target_symbol = "XAUUSDT" # Fallback
+            return jsonify({'error': 'Không tìm thấy hợp đồng Option nào đang hoạt động trên hệ thống Binance.'}), 500
 
         # 2. Lấy Order Book (Depth) của mã Option cụ thể đó
         book_url = f"https://eapi.binance.com/eapi/v1/depth?symbol={target_symbol}&limit=5"
@@ -42,14 +48,13 @@ def get_option_order_book():
         trades_res = requests.get(trades_url, headers=HEADERS, timeout=5).json()
         
         if 'asks' not in book_res or 'bids' not in book_res:
-            return jsonify({'error': f'Không lấy được dữ liệu Options cho mã {target_symbol}'}), 500
+            return jsonify({'error': f'Không lấy được dữ liệu Depth cho mã {target_symbol}'}), 500
 
         # Tính Tape Delta từ trades của Options
         recent_delta = 0
         if isinstance(trades_res, list):
             for t in trades_res:
                 qty = float(t.get('qty', 0))
-                # Side: BUY hoặc SELL trong options trades
                 if t.get('side') == 'SELL':
                     recent_delta -= qty
                 else:
