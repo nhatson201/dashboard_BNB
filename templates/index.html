@@ -86,7 +86,6 @@
             letter-spacing: 1px;
         }
         
-        /* Hiệu ứng thanh độ sâu nền bảng */
         .bar-cell {
             position: relative;
         }
@@ -175,10 +174,8 @@
         return entries;
     }
 
-    // Mô phỏng tính toán ngày đáo hạn hợp đồng (ví dụ: Thứ Sáu tuần thứ 3 hoặc cuối tháng)
     function getNextContractExpiry() {
         let now = new Date();
-        // Giả lập kỳ hạn gần nhất vào cuối tháng lúc 15:00 UTC
         let expiry = new Date(now.getFullYear(), now.getMonth() + 1, 0); 
         expiry.setUTCHours(15, 0, 0, 0);
         return expiry.toLocaleString('vi-VN', { timeZone: 'UTC' }) + " UTC";
@@ -186,32 +183,30 @@
 
     async function fetchOrderBook() {
         try {
-            let [bookRes, tradesRes] = await Promise.all([
-                fetch('https://fapi.binance.com/fapi/v1/depth?symbol=XAUUSDT&limit=50'),
-                fetch('https://fapi.binance.com/fapi/v1/trades?symbol=XAUUSDT&limit=50')
-            ]);
+            let response = await fetch('/api/data');
+            let resData = await response.json();
             
-            let data = await bookRes.json();
-            let trades = await tradesRes.json();
+            if (resData.error) {
+                document.getElementById('status').innerText = "Lỗi kết nối từ Server tới Binance";
+                return;
+            }
+
+            let data = resData.depth;
+            let trades = resData.trades;
             
             if (!data.asks || !data.bids) {
-                document.getElementById('status').innerText = "Lỗi phản hồi từ Binance";
+                document.getElementById('status').innerText = "Dữ liệu sổ lệnh trống";
                 return;
             }
 
             let recent_delta = 0;
-            let buyCount5m = 0;
-            let sellCount5m = 0;
-
             if (Array.isArray(trades)) {
                 trades.forEach(t => {
                     let qty = parseFloat(t.qty);
                     if (t.isBuyerMaker) {
                         recent_delta -= qty;
-                        sellCount5m++;
                     } else {
                         recent_delta += qty;
-                        buyCount5m++;
                     }
                 });
             }
@@ -229,16 +224,12 @@
                 status5mEl.className = "alert-value status-neutral";
             }
 
-            // Giả lập thống kê số lệnh chờ đáo hạn dựa trên quy mô sổ lệnh hiện tại
-            let totalBuyExpiryOrders = data.bids.length * 12;  // Ví dụ quy đổi số lượng lệnh chờ
+            let totalBuyExpiryOrders = data.bids.length * 12;
             let totalSellExpiryOrders = data.asks.length * 12;
             document.getElementById('expiry-orders-count').innerHTML = 
                 `<span class="status-buy">${totalBuyExpiryOrders} Buy</span> / <span class="status-sell">${totalSellExpiryOrders} Sell</span>`;
-
-            // Ngày giờ đáo hạn
             document.getElementById('expiry-date-text').innerText = getNextContractExpiry();
 
-            // Gom nhóm theo bước giá 0.1
             let asks_raw = aggregateOrders(data.asks, true).slice(-10);
             let bids_raw = aggregateOrders(data.bids, false).slice(0, 10);
 
@@ -290,7 +281,6 @@
             netDeltaEl.innerText = (recent_delta >= 0 ? "+" : "") + recent_delta.toFixed(2) + " HĐ";
             netDeltaEl.className = recent_delta >= 0 ? "positive" : "negative";
 
-            // Render Asks
             asks.forEach(item => {
                 let pct = (item.cumulative / max_cum_ask).toFixed(2);
                 let deltaClass = item.tape_delta >= 0 ? "positive" : "negative";
@@ -310,7 +300,6 @@
 
             html += `<tr><td colspan="7" class="spread-bar">SPREAD: ${spread} (Best Ask: ${best_ask.toFixed(1)} | Best Bid: ${best_bid.toFixed(1)})</td></tr>`;
 
-            // Render Bids
             bids.forEach(item => {
                 let pct = (item.cumulative / max_cum_bid).toFixed(2);
                 let deltaClass = item.tape_delta >= 0 ? "positive" : "negative";
@@ -331,7 +320,7 @@
             document.getElementById('dom-body').innerHTML = html;
         } catch (err) {
             console.error("Lỗi:", err);
-            document.getElementById('status').innerText = "Đang kết nối lại với Binance...";
+            document.getElementById('status').innerText = "Đang kết nối lại với Server...";
         }
     }
 
